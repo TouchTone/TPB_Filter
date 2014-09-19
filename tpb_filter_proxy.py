@@ -2,30 +2,32 @@
 
 # Simple filter app to remove dead torrents frm TBP results
 
-import cherrypy, requests, re
+import cherrypy, requests, re, os
 from bs4 import BeautifulSoup
-
+from functools import partial
 
 baseurl="http://thepiratebay.se/"
 basetorperpage = 30
 
 # Image getters
+imgstyle = 'max-width:100%%; display: block; margin-left: auto; margin-right: auto;'
+
 def IG_3xplanet(session, url):
     try:
-        r = session.get(url.strip())
+        r = session.get(url)
         bs = BeautifulSoup(r.content)
         
         img = bs.find("img", alt = "picContent")
         if img:
             i = bs.new_tag("img")
-            i['style'] = 'max-width:100%%;'
+            i['style'] = imgstyle
             i['src'] = img["src"]
             return i
         
     except Exception, e:
         print "***Caught %s trying to get image from %s!" % (e, url)        
         
-    return url
+    return None
 
 
 def IG_bayimg(session, url):
@@ -36,14 +38,87 @@ def IG_bayimg(session, url):
         img = bs.find("img", id = "mainImage")
         if img:
             i = bs.new_tag("img")
-            i['style'] = 'max-width:100%%;'
+            i['style'] = imgstyle
             i['src'] = img["src"]
             return i
         
     except Exception, e:
         print "***Caught %s trying to get image from %s!" % (e, url)        
         
-    return url
+    return None
+
+
+def IG_id(session, url, idval):
+    try:
+        r = session.get(url)
+        bs = BeautifulSoup(r.content)
+        
+        img = bs.find("img", id = idval)
+        if img:
+            i = bs.new_tag("img")
+            i['style'] = imgstyle
+            i['src'] = img["src"]
+            return i
+        
+    except Exception, e:
+        print "***Caught %s trying to get image from %s!" % (e, url)        
+        
+    return None
+
+
+def IG_tags(session, url, tagvals):
+    try:
+        if url.startswith("http"):
+            site = url.split('/')[2]
+        else:
+            site = url.split('/')[0]      
+        
+        r = session.get(url, headers = { "Referer" : site, "User-Agent" : "Mozilla/5.0" } )
+        bs = BeautifulSoup(r.content)
+        
+        img = bs.find("img", **tagvals)
+        if img:
+            i = bs.new_tag("img")
+            i['style'] = imgstyle
+                        
+            i['src'] = img["src"]
+            return i
+        
+    except Exception, e:
+        print "***Caught %s trying to get image from %s!" % (e, url)        
+        
+    return None
+
+
+def IG_imghornybiz(session, url):
+    try:
+        pid = url[url.find("share-")+6:url.find(".html")]
+    
+        i = BeautifulSoup().new_tag("img")
+        i['style'] = imgstyle
+        i['src'] = "http://imghorny.biz/image.php?id=" + pid
+        return i
+        
+    except Exception, e:
+        print "***Caught %s trying to get image from %s!" % (e, url)        
+        
+    return None
+    
+
+def IG_blobopicsbiz(session, url):
+    try:
+        pid = url[url.find("share-")+6:url.find(".html")]
+    
+        i = BeautifulSoup().new_tag("img")
+        i['style'] = imgstyle
+        i['src'] = "http://blobopics.biz/image-" + pid + ".jpg"
+        return i
+        
+    except Exception, e:
+        print "***Caught %s trying to get image from %s!" % (e, url)        
+        
+    return None
+    
 
 
 def IG_fileeq(session, url):
@@ -54,7 +129,7 @@ def IG_fileeq(session, url):
             src = url[ii+5:]
 
             i = BeautifulSoup().new_tag("img")
-            i['style'] = 'max-width:100%%;'
+            i['style'] = imgstyle
             
             if url.startswith("http://"):
                 url = url[7:]
@@ -65,7 +140,48 @@ def IG_fileeq(session, url):
     except Exception, e:
         print "***Caught %s trying to get image from %s!" % (e, url)
         
-    return url
+    return None
+
+
+def IG_pixxxme(session, url):
+    try:
+        r = session.get(url)
+        bs = BeautifulSoup(r.content)
+        
+        img = bs.find("img", class_ = "centred")
+        if not img:
+            img = bs.find("img", class_ = "centred_resized")
+        if img:
+            i = bs.new_tag("img")
+            i['style'] = 'max-width:100%%;'
+            i['src'] = img["src"]
+            return i
+        
+    except Exception, e:
+        print "***Caught %s trying to get image from %s!" % (e, url)        
+        
+    return None
+
+
+def IG_torrentpreviewscom(session, url):
+    try:
+        r = session.get(url)
+        bs = BeautifulSoup(r.content)
+        
+        out = bs.new_tag("span")
+        
+        for img in bs.findAll("img", class_ = "img-responsive"):
+            i = bs.new_tag("img")
+            i['style'] = 'max-width:100%%;'
+            i['src'] = img["src"]
+            out.append(i)
+            
+        return out
+        
+    except Exception, e:
+        print "***Caught %s trying to get image from %s!" % (e, url)        
+        
+    return None
 
     
 class TBPFilter(object):
@@ -141,9 +257,18 @@ class TBPFilter(object):
                 for i in nfo.find_all("a"):
                     url = i["href"]
                     
-                    for prov,func in [("3xplanet.com", IG_3xplanet), ("bayimg.com", IG_bayimg), ("244pix.com", IG_fileeq), ("imagecurl.org", IG_fileeq)]:
+                    # Not working:
+                    #
+                    
+                    for prov,func in [("3xplanet.com", IG_3xplanet), ("bayimg.com", IG_bayimg), ("244pix.com", IG_fileeq), ("imagecurl.org", IG_fileeq),
+                                      ("pixxx.me", IG_pixxxme), ("celebrityclips.org", IG_pixxxme), ("imghorny.biz", IG_imghornybiz),
+                                      ("blobopics.biz", IG_blobopicsbiz), ("torrentpreviews.com", IG_torrentpreviewscom),
+                                      ("postimg.org", partial(IG_tags, tagvals={"width" : "1280px"}))
+                                      ]:
                         if prov in url:
-                            i.replaceWith(func(self.session, url.strip()))
+                            n = func(self.session, url.strip())
+                            if n:
+                                i.replaceWith(n)
             
                       
             cont = str(bs)
@@ -400,9 +525,18 @@ class TBPFilter(object):
         tortable = tortable.replaceWith(BeautifulSoup(newtable))
                   
         return str(bs)
-        
-cherrypy.config.update({
-    'tools.sessions.on': True, 
-    'tools.sessions.storage_type': 'ram'})  
+
+
+
+root = os.path.abspath(os.path.dirname(__file__))
+
+conf = {'/' :      {'tools.sessions.on': True, 
+                    'tools.sessions.storage_type': 'ram' },
+        '/static/css-new/pirate6.css':    
+                   {'tools.staticfile.on': True,              
+                    'tools.staticfile.filename': '%s/pirate6.css' % root}
+        }
+    
+cherrypy.config.update(conf)  
    
 cherrypy.quickstart(TBPFilter())
