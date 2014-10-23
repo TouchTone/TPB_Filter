@@ -2,87 +2,57 @@
 
 # Simple filter app to remove dead torrents frm TBP results
 
-import cherrypy, requests, re, os
+import cherrypy, requests, re, os, time
 from bs4 import BeautifulSoup
 from functools import partial
 
 baseurl="http://thepiratebay.se/"
 basetorperpage = 30
+refreshtime = 600
 
 # Image getters
-imgstyle = 'max-width:100%%; display: block; margin-left: auto; margin-right: auto;'
+imgstyle = 'max-width:100%; display: block; margin-left: auto; margin-right: auto;'
 
-def IG_3xplanet(session, url):
+def makeImage(bs, url, img):
+    s = bs.new_tag("span")
+    if url:
+        a = bs.new_tag("a")
+        a['href'] = url
+        a.append(url)
+        s.append(a)
+    i = bs.new_tag("img")
+    i['style'] = imgstyle
+    i['src'] = img
+    s.append(i)
+    return s
+
+
+def IG_id(bs, session, url, idval):
+    return IG_tags(bs, session, url, {"id" : idval})
+
+
+def IG_tags(bs, session, url, tagvals, method = "get"):
     try:
-        r = session.get(url)
-        bs = BeautifulSoup(r.content)
+        if not url.startswith("http"):
+            url = "http://" + url
+            
+        site = url.split('/')[2]
         
-        img = bs.find("img", alt = "picContent")
-        if img:
-            i = bs.new_tag("img")
-            i['style'] = imgstyle
-            i['src'] = img["src"]
-            return i
-        
-    except Exception, e:
-        print "***Caught %s trying to get image from %s!" % (e, url)        
-        
-    return None
-
-
-def IG_bayimg(session, url):
-    try:
-        r = session.get(url)
-        bs = BeautifulSoup(r.content)
-        
-        img = bs.find("img", id = "mainImage")
-        if img:
-            i = bs.new_tag("img")
-            i['style'] = imgstyle
-            i['src'] = img["src"]
-            return i
-        
-    except Exception, e:
-        print "***Caught %s trying to get image from %s!" % (e, url)        
-        
-    return None
-
-
-def IG_id(session, url, idval):
-    try:
-        r = session.get(url)
-        bs = BeautifulSoup(r.content)
-        
-        img = bs.find("img", id = idval)
-        if img:
-            i = bs.new_tag("img")
-            i['style'] = imgstyle
-            i['src'] = img["src"]
-            return i
-        
-    except Exception, e:
-        print "***Caught %s trying to get image from %s!" % (e, url)        
-        
-    return None
-
-
-def IG_tags(session, url, tagvals):
-    try:
-        if url.startswith("http"):
-            site = url.split('/')[2]
+        if method == "get":
+            r = session.get(url, headers = {"Accept" : "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                                            "Referer" : url
+                                            } )
         else:
-            site = url.split('/')[0]      
-        
-        r = session.get(url, headers = { "Referer" : site, "User-Agent" : "Mozilla/5.0" } )
+            r = session.post(url, headers = {"Accept" : "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                                            "Referer" : url
+                                            } )
+            
+            
         bs = BeautifulSoup(r.content)
         
         img = bs.find("img", **tagvals)
         if img:
-            i = bs.new_tag("img")
-            i['style'] = imgstyle
-                        
-            i['src'] = img["src"]
-            return i
+            return makeImage(bs, url, img["src"])
         
     except Exception, e:
         print "***Caught %s trying to get image from %s!" % (e, url)        
@@ -90,29 +60,30 @@ def IG_tags(session, url, tagvals):
     return None
 
 
-def IG_imghornybiz(session, url):
+def IG_multitags(bs, session, url, tagsets, method = "get"):
+    for t in tagsets:
+        ret = IG_tags(bs, session, url, t, method)
+        if ret:
+            return ret
+    return None
+
+
+def IG_regex(bs, session, url, regex):
+    try:
+        nurl = re.sub(regex[0], regex[1], url)
+        return makeImage(bs, url, nurl)
+        
+    except Exception, e:
+        print "***Caught %s trying to get image from %s!" % (e, url)        
+        
+    return None
+    
+
+
+def IG_blobopicsbiz(bs, session, url):
     try:
         pid = url[url.find("share-")+6:url.find(".html")]
-    
-        i = BeautifulSoup().new_tag("img")
-        i['style'] = imgstyle
-        i['src'] = "http://imghorny.biz/image.php?id=" + pid
-        return i
-        
-    except Exception, e:
-        print "***Caught %s trying to get image from %s!" % (e, url)        
-        
-    return None
-    
-
-def IG_blobopicsbiz(session, url):
-    try:
-        pid = url[url.find("share-")+6:url.find(".html")]
-    
-        i = BeautifulSoup().new_tag("img")
-        i['style'] = imgstyle
-        i['src'] = "http://blobopics.biz/image-" + pid + ".jpg"
-        return i
+        return makeImage(bs, url, "http://blobopics.biz/image-" + pid + ".jpg")
         
     except Exception, e:
         print "***Caught %s trying to get image from %s!" % (e, url)        
@@ -121,21 +92,16 @@ def IG_blobopicsbiz(session, url):
     
 
 
-def IG_fileeq(session, url):
+def IG_fileeq(bs, session, url):
     try:
         ii = url.find("file=")
         
         if ii >= 0:
             src = url[ii+5:]
-
-            i = BeautifulSoup().new_tag("img")
-            i['style'] = imgstyle
-            
             if url.startswith("http://"):
                 url = url[7:]
             f = url.split('/',1)
-            i['src'] = "/addReferer?url=http://" + f[0] + "/images/" + src
-            return i
+            return makeImage(bs, url, "/addReferer?url=http://" + f[0] + "/images/" + src)
         
     except Exception, e:
         print "***Caught %s trying to get image from %s!" % (e, url)
@@ -143,38 +109,19 @@ def IG_fileeq(session, url):
     return None
 
 
-def IG_pixxxme(session, url):
-    try:
-        r = session.get(url)
-        bs = BeautifulSoup(r.content)
-        
-        img = bs.find("img", class_ = "centred")
-        if not img:
-            img = bs.find("img", class_ = "centred_resized")
-        if img:
-            i = bs.new_tag("img")
-            i['style'] = 'max-width:100%%;'
-            i['src'] = img["src"]
-            return i
-        
-    except Exception, e:
-        print "***Caught %s trying to get image from %s!" % (e, url)        
-        
-    return None
-
-
-def IG_torrentpreviewscom(session, url):
+def IG_torrentpreviewscom(bs, session, url):
     try:
         r = session.get(url)
         bs = BeautifulSoup(r.content)
         
         out = bs.new_tag("span")
+        a = bs.new_tag("a")
+        a["href"] = url
+        a.append(url)
+        out.append(a)
         
         for img in bs.findAll("img", class_ = "img-responsive"):
-            i = bs.new_tag("img")
-            i['style'] = 'max-width:100%%;'
-            i['src'] = img["src"]
-            out.append(i)
+            out.append(makeImage(bs, None, img["src"]))
             
         return out
         
@@ -183,16 +130,70 @@ def IG_torrentpreviewscom(session, url):
         
     return None
 
+
+def IG_xbustyorg(bs, session, url):
+    try:
+        r = session.get(url)
+        bs = BeautifulSoup(r.content)
+        
+        out = bs.new_tag("span")
+        a = bs.new_tag("a")
+        a["href"] = url
+        a.append(url)
+        out.append(a)
+        
+        for img in bs.findAll("img", title = True):
+            if img["src"].startswith("/uploads"):
+                out.append(makeImage(bs, None, "http://x-busty.org" + img["src"]))
+            
+        return out
+        
+    except Exception, e:
+        print "***Caught %s trying to get image from %s!" % (e, url)        
+        
+    return None
+
+
+def IG_amateurhubcom(bs, session, url):
+    try:         
+        r = session.get("http://" + url)
+        bs = BeautifulSoup(r.content)
+        
+        out = bs.new_tag("span")
+        a = bs.new_tag("a")
+        a["href"] = url
+        a.append(url)
+        out.append(a)
+        
+        for img in bs.findAll("img", alt = "image"):
+            if img.parent["href"]:
+                temp = bs.new_tag("span")
+                temp.append("http:" + img.parent["href"])
+                out.append(the.imageReplace(bs, temp))
+            
+        return out
+        
+    except Exception, e:
+        print "***Caught %s trying to get image from %s!" % (e, url)        
+        
+    return None
+
+
+
+the = None
     
 class TBPFilter(object):
 
     def __init__(self):
-    
+        global the        
+        the = self
+        
         self.session = requests.Session()
         
         self.session.get(baseurl + "/switchview.php?view=s", headers={'referer': baseurl + '/browse/603'})
         
         self.lastpage = baseurl
+        self.lastget = 0
         self.cache = {}
         
         # Config options
@@ -215,7 +216,54 @@ class TBPFilter(object):
         self.filterSize = False
         self.filterSizeMin = 0
         self.filterSizeMax = 10
- 
+
+        
+    def imageReplace(self, bs, tag):
+        igs = [("3xplanet.com", partial(IG_tags, tagvals={"alt" : "picContent"})), 
+                          ("image.bayimg.com", partial(IG_regex, regex=("(.*)", "\\1"))), 
+                          ("bayimg.com", partial(IG_id, idval="mainImage")), 
+                          ("interimagez.com", partial(IG_id, idval="full_image")), 
+                          ("244pix.com", IG_fileeq), 
+                          ("imagecurl.org", IG_fileeq),
+                          ("pixxx.me", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])), 
+                          ("celebrityclips.org", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])), 
+                          ("unloadhost.com", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])), 
+                          ("imgdetop.com", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}], method="post")), 
+                          ("imgreserve.com", partial(IG_regex, regex=(".*\\?v=([0-9]*)", "http://imgreserve.com/images/\\1.jpg"))),
+                          ("blobopics.biz", IG_blobopicsbiz), 
+                          ("torrentpreviews.com", IG_torrentpreviewscom),
+                          ("postimg.org", partial(IG_multitags, tagsets=[{"width" : "1280px"}, {"width" : "1024px"}])),
+                          ("imghorny.biz", partial(IG_regex, regex=(".*share-([^.]*)\.html", "http://imghorny.biz/image.php?id=\\1"))),
+                          ("imgswift.com", partial(IG_tags, tagvals={"class_" : "pic"})),
+                          ("torrentimagehost.com", partial(IG_tags, tagvals={"data-load" : "full"})),
+                          ("x-busty.org", IG_xbustyorg),
+                          ("amateur-hub.com", IG_amateurhubcom),
+                          ("imgcoffee.biz", partial(IG_regex, regex=(".*share-([^.]*)\.html", "http://imgcoffee.biz/image.php?id=\\1"))),
+                          ("imgtwist.org", partial(IG_regex, regex=(".*v=([0-9]*)", "http://imgtwist.org/images/\\1.jpg"))),
+                          ("stooorage.com", partial(IG_tags, tagvals={"onload" : True}))
+                          ]
+        
+        if False:
+            text = " ".join(tag.stripped_strings)
+            for prov,func in igs:
+                for l in re.finditer(prov + "/[^ ]*", text):
+                    n = func(bs, self.session, l.group())
+                    if n:
+                        i.replaceWith(n)
+                        break
+                    
+        else:
+            for i in tag.find_all("a"):
+                url = i["href"]                   
+                for prov,func in igs:
+                    if prov in url:
+                        n = func(bs, self.session, url.strip())
+                        if n:
+                            i.replaceWith(n)
+                            break
+         
+        return tag 
+      
         
     def getPage(self, url):
     
@@ -235,6 +283,7 @@ class TBPFilter(object):
         
         if cont.startswith('<!DOCTYPE'):
             self.lastpage = url
+            self.lastget = time.time()
             
             bs = BeautifulSoup(r.content)
             
@@ -253,24 +302,9 @@ class TBPFilter(object):
             # Replace image links with actual images
             nfo = bs.find(class_="nfo")
             
-            if nfo:
-                for i in nfo.find_all("a"):
-                    url = i["href"]
-                    
-                    # Not working:
-                    #
-                    
-                    for prov,func in [("3xplanet.com", IG_3xplanet), ("bayimg.com", IG_bayimg), ("244pix.com", IG_fileeq), ("imagecurl.org", IG_fileeq),
-                                      ("pixxx.me", IG_pixxxme), ("celebrityclips.org", IG_pixxxme), ("imghorny.biz", IG_imghornybiz),
-                                      ("blobopics.biz", IG_blobopicsbiz), ("torrentpreviews.com", IG_torrentpreviewscom),
-                                      ("postimg.org", partial(IG_tags, tagvals={"width" : "1280px"}))
-                                      ]:
-                        if prov in url:
-                            n = func(self.session, url.strip())
-                            if n:
-                                i.replaceWith(n)
-            
-                      
+            if nfo:      
+                self.imageReplace(bs, nfo)
+
             cont = str(bs)
             
             # Fix messes. Not sure what's happening, the /browse URLs are just messed up.
@@ -360,6 +394,16 @@ class TBPFilter(object):
         except KeyError:
             lastpage = 0
             area = []
+
+        # Refresh of needed
+        if time.time() > self.lastget + refreshtime:
+            lastpage = 0
+            area = []
+            try:
+                del self.cache()[key]
+            except Exception:
+                pass
+            
 
         start = page * self.torperpage
         end = (page + 1) * self.torperpage
