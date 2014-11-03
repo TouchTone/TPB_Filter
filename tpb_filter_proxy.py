@@ -240,7 +240,8 @@ class TBPFilter(object):
                           ("amateur-hub.com", IG_amateurhubcom),
                           ("imgcoffee.biz", partial(IG_regex, regex=(".*share-([^.]*)\.html", "http://imgcoffee.biz/image.php?id=\\1"))),
                           ("imgtwist.org", partial(IG_regex, regex=(".*v=([0-9]*)", "http://imgtwist.org/images/\\1.jpg"))),
-                          ("stooorage.com", partial(IG_tags, tagvals={"onload" : True}))
+                          ("stooorage.com", partial(IG_tags, tagvals={"onload" : True})),
+                          ("imgrest.com", partial(IG_tags, tagvals={"alt" : re.compile("[0-9a-z]*.jpg")}))
                           ]
         
         if False:
