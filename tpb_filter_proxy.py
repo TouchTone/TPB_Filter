@@ -13,7 +13,9 @@ refreshtime = 600
 # Image getters
 imgstyle = 'max-width:100%; display: block; margin-left: auto; margin-right: auto;'
 
-def makeImage(bs, url, img):
+def makeImage(bs, url, img, referer = False):
+    if referer:
+        img = "http://localhost:8080/addReferer?url=" + img
     s = bs.new_tag("span")
     if url:
         a = bs.new_tag("a")
@@ -31,7 +33,7 @@ def IG_id(bs, session, url, idval):
     return IG_tags(bs, session, url, {"id" : idval})
 
 
-def IG_tags(bs, session, url, tagvals, method = "get"):
+def IG_tags(bs, session, url, tagvals, method = "get", referer = False):
     try:
         if not url.startswith("http"):
             url = "http://" + url
@@ -52,7 +54,7 @@ def IG_tags(bs, session, url, tagvals, method = "get"):
         
         img = bs.find("img", **tagvals)
         if img:
-            return makeImage(bs, url, img["src"])
+            return makeImage(bs, url, img["src"], referer)
         
     except Exception, e:
         print "***Caught %s trying to get image from %s!" % (e, url)        
@@ -60,9 +62,9 @@ def IG_tags(bs, session, url, tagvals, method = "get"):
     return None
 
 
-def IG_multitags(bs, session, url, tagsets, method = "get"):
+def IG_multitags(bs, session, url, tagsets, method = "get", referer = False):
     for t in tagsets:
-        ret = IG_tags(bs, session, url, t, method)
+        ret = IG_tags(bs, session, url, t, method, referer)
         if ret:
             return ret
     return None
@@ -178,8 +180,8 @@ def IG_amateurhubcom(bs, session, url):
         
     return None
 
-
-
+    
+    
 the = None
     
 class TBPFilter(object):
@@ -226,9 +228,12 @@ class TBPFilter(object):
                           ("244pix.com", IG_fileeq), 
                           ("imagecurl.org", IG_fileeq),
                           ("pixxx.me", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])), 
+                          ("imgbabes.net", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])), 
+                          ("imagesnt.com", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}], referer = True)), 
                           ("celebrityclips.org", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])), 
                           ("unloadhost.com", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])), 
                           ("imgdetop.com", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}], method="post")), 
+                          ("pixxxsex.com", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])),
                           ("imgreserve.com", partial(IG_regex, regex=(".*\\?v=([0-9]*)", "http://imgreserve.com/images/\\1.jpg"))),
                           ("blobopics.biz", IG_blobopicsbiz), 
                           ("torrentpreviews.com", IG_torrentpreviewscom),
@@ -241,7 +246,7 @@ class TBPFilter(object):
                           ("imgcoffee.biz", partial(IG_regex, regex=(".*share-([^.]*)\.html", "http://imgcoffee.biz/image.php?id=\\1"))),
                           ("imgtwist.org", partial(IG_regex, regex=(".*v=([0-9]*)", "http://imgtwist.org/images/\\1.jpg"))),
                           ("stooorage.com", partial(IG_tags, tagvals={"onload" : True})),
-                          ("imgrest.com", partial(IG_tags, tagvals={"alt" : re.compile("[0-9a-z]*.jpg")}))
+                          ("imgrest.com", partial(IG_tags, tagvals={"alt" : re.compile("[0-9a-z]*.(?:jpg|jpeg|png|gif)")}))
                           ]
         
         if False:
