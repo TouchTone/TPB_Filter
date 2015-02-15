@@ -219,6 +219,34 @@ def IG_sampleviewscom(bs, session, url):
     return None
 
     
+def IG_hideimgcom_gallery(bs, session, url):
+    try:         
+        if not url.startswith("http:"):
+            url = "http://" + url
+        r = session.get(url)
+        bs = BeautifulSoup(r.content)
+        
+        out = bs.new_tag("span")
+        a = bs.new_tag("a")
+        a["href"] = url
+        a.append(url)
+        out.append(a)
+        
+        for img in bs.findAll("div", class_ = "gallery-thumb"):
+            iurl = img.div["onclick"]
+            iiurl = iurl[iurl.find("?v="):-1]
+            iiurl = "http://hideimg.com/images/" + iiurl
+
+            out.append(the.makeImage(bs, iurl, iiurl))
+        
+        return out
+        
+    except Exception, e:
+        print "***Caught %s trying to get image from %s!" % (e, url)        
+        
+    return None
+
+    
     
 the = None
     
@@ -229,7 +257,6 @@ class TBPFilter(object):
         the = self
         
         self.session = requests.Session()
-
         self.session.get(baseurl, headers={'referer': baseurl + '/browse/603'}, verify=False)
 
         self.lastpage = baseurl
@@ -272,6 +299,7 @@ class TBPFilter(object):
                ("unloadhost.com", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}])),
                ("imgdetop.com", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}], method="post")),
                ("pixxxsex.com", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}])),
+               ("imgmen.com", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}])),
                ("imgcorn.net", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}],
                                        headers={
                                            "Cookie": "PHPSESSID=03289ce037afb1ad88574fcfd8c532d9; HstCfa2849557=1416604688169; HstCmu2849557=1416604688169; c_ref_2849557=http%3A%2F%2Flocalhost%3A8080%2Ftorrent%2F11573849%2FWowGirls_-_Vanessa_-_The_One_For_Me_(19_Nov_2014); HstCla2849557=1417089446978; HstPn2849557=7; HstPt2849557=55; HstCnv2849557=7; HstCns2849557=9"})),
@@ -285,6 +313,8 @@ class TBPFilter(object):
                ("imgswift.com", partial(IG_tags, tagvals={"class_": "pic"})),
                ("torrentimagehost.com", partial(IG_tags, tagvals={"data-load": "full"})),
                ("x-busty.org", IG_xbustyorg),
+               ("hideimg.com/?g=", IG_hideimgcom_gallery),
+               ("hideimg.com", partial(IG_regex, regex=(".*v=([0-9]*)", "http://hideimg.com/images/\\1.jpg"))),
                ("amateur-hub.com", IG_amateurhubcom),
                ("sampleviews.com", IG_sampleviewscom),
                ("imgcoffee.biz", partial(IG_regex, regex=(".*share-([^.]*)\.html", "http://imgcoffee.biz/image.php?id=\\1"))),
@@ -613,10 +643,9 @@ class TBPFilter(object):
             newtable += '''<table id="searchResult"><thead id="tableHead"><tr class="header">
 
             <th><a href="/{base}/0/{sorts[0]}" title="Order by Type">Type</a></th>
-            <th><a href="/{base}/0/{sorts[1]}" title="Order by Name">Name</a></th>
-            <th><a href="/{base}/0/{sorts[2]}" title="Order by Uploaded">Uploaded</a></th>
-            <th>&nbsp;</th>
-            <th><a href="/{base}/0/{sorts[3]}" title="Order by Size">Size</a></th>
+            <th><a href="/{base}/0/{sorts[1]}" title="Order by Name">Name</a>
+                <a href="/{base}/0/{sorts[2]}" title="Order by Uploaded">Uploaded</a>
+                <a href="/{base}/0/{sorts[3]}" title="Order by Size">Size</a></th>
             <th><abbr title="Seeders"><a href="/{base}/0/{sorts[4]}" title="Order by Seeders">SE</a></abbr></th>
             <th><abbr title="Leechers"><a href="/{base}/0/{sorts[5]}" title="Order by Leechers">LE</a></abbr></th>
 
