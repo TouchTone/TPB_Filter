@@ -2,7 +2,7 @@
 
 # Simple filter app to remove dead torrents frm TBP results
 
-import cherrypy, requests, re, os, time
+import cherrypy, requests, re, os, time, json, base64, traceback
 from bs4 import BeautifulSoup
 from functools import partial
 
@@ -13,9 +13,12 @@ refreshtime = 600
 # Image getters
 imgstyle = 'max-width:100%; display: block; margin-left: auto; margin-right: auto;'
 
-def makeImage(bs, url, img, referer = False):
+
+def makeImage(bs, url, img, referer=False, headers=None):
     if referer:
         img = "http://localhost:8080/addReferer?url=" + img
+        if headers:
+            img += "&headers=" + base64.b64encode(json.dumps(headers))
     s = bs.new_tag("span")
     if url:
         a = bs.new_tag("a")
@@ -33,7 +36,7 @@ def IG_id(bs, session, url, idval):
     return IG_tags(bs, session, url, {"id" : idval})
 
 
-def IG_tags(bs, session, url, tagvals, method = "get", referer = False):
+def IG_tags(bs, session, url, tagvals, method="get", referer=False, headers=None, postdata=None):
     try:
         if not url.startswith("http"):
             url = "http://" + url
@@ -41,30 +44,33 @@ def IG_tags(bs, session, url, tagvals, method = "get", referer = False):
         site = url.split('/')[2]
         
         if method == "get":
-            r = session.get(url, headers = {"Accept" : "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                                            "Referer" : url
-                                            } )
+            r = session.get(url, headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "User-Agent": "Mozilla",
+                "Referer": url
+            })
         else:
-            r = session.post(url, headers = {"Accept" : "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                                            "Referer" : url
-                                            } )
-            
-            
+            r = session.post(url, headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "User-Agent": "Mozilla",
+                "Referer": url
+            }, data=postdata)
+
         bs = BeautifulSoup(r.content)
         
         img = bs.find("img", **tagvals)
         if img:
-            return makeImage(bs, url, img["src"], referer)
-        
+            return makeImage(bs, url, img["src"], referer, headers)
+
     except Exception, e:
-        print "***Caught %s trying to get image from %s!" % (e, url)        
-        
+        print "***Caught %s trying to get image from %s!" % (e, url)
+	print traceback.format_exc()
     return None
 
 
-def IG_multitags(bs, session, url, tagsets, method = "get", referer = False):
+def IG_multitags(bs, session, url, tagsets, method="get", referer=False, headers=None, postdata=None):
     for t in tagsets:
-        ret = IG_tags(bs, session, url, t, method, referer)
+        ret = IG_tags(bs, session, url, t, method, referer, headers, postdata)
         if ret:
             return ret
     return None
@@ -97,7 +103,7 @@ def IG_blobopicsbiz(bs, session, url):
 def IG_fileeq(bs, session, url):
     try:
         ii = url.find("file=")
-        
+
         if ii >= 0:
             src = url[ii+5:]
             if url.startswith("http://"):
@@ -180,6 +186,38 @@ def IG_amateurhubcom(bs, session, url):
         
     return None
 
+
+def IG_sampleviewscom(bs, session, url):
+    try:         
+        if not url.startswith("http://"):
+            url = "http://" + url
+        r = session.get(url)
+        bs = BeautifulSoup(r.content)
+        
+        out = bs.new_tag("span")
+        a = bs.new_tag("a")
+        a["href"] = url
+        a.append(url)
+        a.append(bs.new_tag("br"))
+        out.append(a)
+        
+        for img in bs.findAll("img", class_ = "img-responsive"):
+            print "SV: %s" % img
+            temp = bs.new_tag("span")
+            out.append(temp)
+            temp.append(img["src"])
+            i = bs.new_tag("img")
+            i["src"] = img["src"]
+            i['style'] = imgstyle
+            temp.append(i)
+            
+        return out
+        
+    except Exception, e:
+        print "***Caught %s trying to get image from %s!" % (e, url)        
+        
+    return None
+
     
     
 the = None
@@ -191,9 +229,9 @@ class TBPFilter(object):
         the = self
         
         self.session = requests.Session()
-        
-        self.session.get(baseurl + "/switchview.php?view=s", headers={'referer': baseurl + '/browse/603'})
-        
+
+        self.session.get(baseurl, headers={'referer': baseurl + '/browse/603'}, verify=False)
+
         self.lastpage = baseurl
         self.lastget = 0
         self.cache = {}
@@ -221,34 +259,41 @@ class TBPFilter(object):
 
         
     def imageReplace(self, bs, tag):
-        igs = [("3xplanet.com", partial(IG_tags, tagvals={"alt" : "picContent"})), 
-                          ("image.bayimg.com", partial(IG_regex, regex=("(.*)", "\\1"))), 
-                          ("bayimg.com", partial(IG_id, idval="mainImage")), 
-                          ("interimagez.com", partial(IG_id, idval="full_image")), 
-                          ("244pix.com", IG_fileeq), 
-                          ("imagecurl.org", IG_fileeq),
-                          ("pixxx.me", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])), 
-                          ("imgbabes.net", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])), 
-                          ("imagesnt.com", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}], referer = True)), 
-                          ("celebrityclips.org", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])), 
-                          ("unloadhost.com", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])), 
-                          ("imgdetop.com", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}], method="post")), 
-                          ("pixxxsex.com", partial(IG_multitags, tagsets=[{"class_" : "centred"}, {"class_" : "centred_resized"}])),
-                          ("imgreserve.com", partial(IG_regex, regex=(".*\\?v=([0-9]*)", "http://imgreserve.com/images/\\1.jpg"))),
-                          ("blobopics.biz", IG_blobopicsbiz), 
-                          ("torrentpreviews.com", IG_torrentpreviewscom),
-                          ("postimg.org", partial(IG_multitags, tagsets=[{"width" : "1280px"}, {"width" : "1024px"}])),
-                          ("imghorny.biz", partial(IG_regex, regex=(".*share-([^.]*)\.html", "http://imghorny.biz/image.php?id=\\1"))),
-                          ("imgswift.com", partial(IG_tags, tagvals={"class_" : "pic"})),
-                          ("torrentimagehost.com", partial(IG_tags, tagvals={"data-load" : "full"})),
-                          ("x-busty.org", IG_xbustyorg),
-                          ("amateur-hub.com", IG_amateurhubcom),
-                          ("imgcoffee.biz", partial(IG_regex, regex=(".*share-([^.]*)\.html", "http://imgcoffee.biz/image.php?id=\\1"))),
-                          ("imgtwist.org", partial(IG_regex, regex=(".*v=([0-9]*)", "http://imgtwist.org/images/\\1.jpg"))),
-                          ("stooorage.com", partial(IG_tags, tagvals={"onload" : True})),
-                          ("imgrest.com", partial(IG_tags, tagvals={"alt" : re.compile("[0-9a-z]*.(?:jpg|jpeg|png|gif)")}))
-                          ]
-        
+        igs = [("3xplanet.com", partial(IG_tags, tagvals={"alt": "picContent"})),
+               ("image.bayimg.com", partial(IG_regex, regex=("(.*)", "\\1"))),
+               ("bayimg.com", partial(IG_id, idval="mainImage")),
+               ("interimagez.com", partial(IG_id, idval="full_image")),
+               ("244pix.com", IG_fileeq),
+               ("imagecurl.org", IG_fileeq),
+               ("pixxx.me", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}])),
+               ("imgbabes.net", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}])),
+               ("imagesnt.com", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}], referer=True)),
+               ("celebrityclips.org", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}])),
+               ("unloadhost.com", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}])),
+               ("imgdetop.com", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}], method="post")),
+               ("pixxxsex.com", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}])),
+               ("imgcorn.net", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}],
+                                       headers={
+                                           "Cookie": "PHPSESSID=03289ce037afb1ad88574fcfd8c532d9; HstCfa2849557=1416604688169; HstCmu2849557=1416604688169; c_ref_2849557=http%3A%2F%2Flocalhost%3A8080%2Ftorrent%2F11573849%2FWowGirls_-_Vanessa_-_The_One_For_Me_(19_Nov_2014); HstCla2849557=1417089446978; HstPn2849557=7; HstPt2849557=55; HstCnv2849557=7; HstCns2849557=9"})),
+               ("imgza.biz", partial(IG_multitags, tagsets=[{"class_": "centred"}, {"class_": "centred_resized"}], method="post", postdata={"imgContinue":"Click"})),
+               ("imgbays.com", partial(IG_regex, regex=("(.*)", "/getImagebays?url=\\1"))),
+               ("imgreserve.com", partial(IG_regex, regex=(".*\\?v=([0-9]*)", "http://imgreserve.com/images/\\1.jpg"))),
+               ("blobopics.biz", IG_blobopicsbiz),
+               ("torrentpreviews.com", IG_torrentpreviewscom),
+               ("postimg.org", partial(IG_multitags, tagsets=[{"width": "1280px"}, {"width": "1024px"}, {"width": "1000px"}])),
+               ("imghorny.biz", partial(IG_regex, regex=(".*share-([^.]*)\.html", "http://imghorny.biz/image.php?id=\\1"))),
+               ("imgswift.com", partial(IG_tags, tagvals={"class_": "pic"})),
+               ("torrentimagehost.com", partial(IG_tags, tagvals={"data-load": "full"})),
+               ("x-busty.org", IG_xbustyorg),
+               ("amateur-hub.com", IG_amateurhubcom),
+               ("sampleviews.com", IG_sampleviewscom),
+               ("imgcoffee.biz", partial(IG_regex, regex=(".*share-([^.]*)\.html", "http://imgcoffee.biz/image.php?id=\\1"))),
+               ("imgtwist.org", partial(IG_regex, regex=(".*v=([0-9]*)", "http://imgtwist.org/images/\\1.jpg"))),
+               ("hideimg.org", partial(IG_regex, regex=(".*v=([0-9]*)", "http://hideimg.org/images/\\1.jpg"))),
+               ("stooorage.com", partial(IG_tags, tagvals={"onload": True})),
+               ("imgrest.com", partial(IG_tags, tagvals={"alt": re.compile("[0-9a-z]*.(?:jpg|jpeg|png|gif)")}))
+        ]
+
         if False:
             text = " ".join(tag.stripped_strings)
             for prov,func in igs:
@@ -372,12 +417,36 @@ class TBPFilter(object):
         if url.startswith("http"):
             site = url.split('/')[2]
         else:
-            site = url.split('/')[0]          
-        headers = {'referer': site}
-        r  = self.session.get(url, headers=headers)
+            site = url.split('/')[0]
+        headers = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                   "User-Agent": "Mozilla/5.0",
+                   "Referer": site}
+        if "headers" in kwargs:
+            h = json.loads(base64.b64decode(kwargs["headers"]))
+            headers.update(h)
+        r = self.session.get(url, headers=headers, verify=False)
         return r.content
-       
-    
+
+    @cherrypy.expose
+    def getImagebays(self, url):
+        try:
+            r = self.session.get(url)
+            bs = BeautifulSoup(r.content)
+
+            for c in ["centred", "centred_resized"]:
+                img = bs.find("img", class_=c)
+
+                if img:
+                    r2 = self.session.get(img["src"])
+                    cherrypy.response.headers['Content-Type']= 'image/jpeg'
+                    return r2.content
+
+        except Exception, e:
+            print "***Caught %s trying to load image from %s!" % (e, url)
+
+        return None
+
+
     def filteredPage(self, base, args):
     
         print "FILTER:", base, len(args), args
@@ -417,7 +486,8 @@ class TBPFilter(object):
         while len(area) < end:
             
             print "*** Getting ", baseurl + "/%s/%d/%d" % (base, lastpage, sortid)
-            r = self.session.get(baseurl + "/%s/%d/%d" % (base, lastpage, sortid), verify=False, headers={'referer': self.lastpage})
+            r = self.session.get(baseurl + "/%s/%d/%d" % (base, lastpage, sortid), verify=False,
+                                 headers={'referer': self.lastpage})
             r.raise_for_status()
         
             lastpage += 1
@@ -437,32 +507,34 @@ class TBPFilter(object):
                     continue
                     
                 tds = tor.find_all("td")
-                if len(tds) != 7:
+                if len(tds) != 4:
                     print "Found unexpected torrent line: ", tor
                     continue
                 
                 # Filter torrents
                 res = True
                 if self.filterSeeds:
-                    seeds = int(tds[5].string)
-                    
+                    seeds = int(tds[2].string)
+
                     if seeds < self.filterSeedsMin:
                         res = False
                     if seeds > self.filterSeedsMax:
                         res = False
                 
                 if self.filterLeechs:
-                    leechs = int(tds[6].string)
-                    
+                    leechs = int(tds[3].string)
+
                     if leechs < self.filterLeechsMin:
                         res = False
                     if leechs > self.filterLeechsMax:
                         res = False
 
                 if self.filterSize:
-                    size, unit = tds[4].string.split(u'\xa0')
-                    units = { "MiB" : 1, "GiB" : 1000, "KiB" : 0.001, "B" : 0.000001 }
-                
+                    t = tds[1].get_text()
+                    t = t[t.find("Size") + 5:t.find(", UL")]
+                    size, unit = t.split(u'\xa0')
+                    units = {"MiB": 1, "GiB": 1000, "KiB": 0.001, "B": 0.000001}
+
                     size = float(size) * units[unit]
                     
                     if size < self.filterSizeMin:
@@ -481,8 +553,9 @@ class TBPFilter(object):
         self.cache[key] = (lastpage, area)
         
         # Replace torrents from original page with filtered ones        
-        r = self.session.get(baseurl + '/' + base + '/' + '/'.join(args), verify=False, headers={'referer': self.lastpage})
-        r.raise_for_status() 
+        r = self.session.get(baseurl + '/' + base + '/' + '/'.join(args), verify=False,
+                             headers={'referer': self.lastpage})
+        r.raise_for_status()
 
         bs = BeautifulSoup(r.content)
 
@@ -518,10 +591,11 @@ class TBPFilter(object):
                 enable = ""
             newtable += '''<input type="checkbox" name="{p}_enable" value="Enable" {enable}/>{p} Min:<input type="text" name="{p}_min" size="6" value="{min:.0f}" /> 
                             Max:<input type="text" name="{p}_max" size="6" value="{max:.0f}" />
-                        '''.format(p=p, enable=enable, min=self.__dict__["filter"+p+"Min"], max=self.__dict__["filter"+p+"Max"])
-        
-        newtable += '<input type="submit" value="Change"/></form></div>'
-        
+                        '''.format(p=p, enable=enable, min=self.__dict__["filter" + p + "Min"],
+                                   max=self.__dict__["filter" + p + "Max"])
+
+        newtable += '(MB) <input type="submit" value="Change"/></form></div>'
+
         # Replace table
         tortable = bs.find("table", id="searchResult")
 
